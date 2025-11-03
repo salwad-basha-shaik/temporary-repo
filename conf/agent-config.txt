@@ -1,0 +1,11 @@
+use-verbose-error-messages=false
+cookie-path=/
+cipher-suite=2
+obfuscate-password=true
+token-notbefore-tolerance=1800
+token-renewuntil=1800000
+use-sunjce=false
+password=FhSW234hVHJoQwsPtK5cKA==
+token-name=caplogixopentoken
+token-lifetime=1800
+use-cookie=false
