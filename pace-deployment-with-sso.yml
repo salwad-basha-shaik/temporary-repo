@@ -1,0 +1,151 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    appname: pace
+    env: uat
+  name: amp-pace-portal
+  namespace: pace
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: amp-pace-portal
+      appname: pace
+      env: uat
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        cattle.io/timestamp: "2025-09-18T15:13:12Z"
+      creationTimestamp: null
+      labels:
+        app: amp-pace-portal
+        appname: pace
+        env: uat
+    spec:
+      containers:
+      - env:
+        - name: SPRING_CONFIG_LOCATION
+          value: /apps/resources/
+        - name: JAVA_OPTS
+          value: -Djavax.net.ssl.trustStorePassword=$(TRUSTSTORE_PASSWORD)
+        - name: TRUSTSTORE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: truststore.password
+              name: truststore-secret
+        image: sv2lxnxaappr001.corp.equinix.com:8001/clmrepo/amp-pace-portal:1.0.0
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /PaceOsPortal/actuator/health
+            port: 9444
+            scheme: HTTP
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        name: amp-pace-portal
+        ports:
+        - containerPort: 8080
+          name: 8080tcp
+          protocol: TCP
+        - containerPort: 9090
+          name: 9090tcp
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /PaceOsPortal/actuator/health
+            port: 9444
+            scheme: HTTP
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /apps/resources/application.properties
+          name: pace-portal-application-properties
+          subPath: application.properties
+        - mountPath: /apps/cert/truststore.jks
+          name: amp-pace-truststore
+          subPath: truststore.jks
+        - mountPath: /apps/cert/jaas.conf
+          name: kafka-jaas-config
+          subPath: jaas.conf
+        - mountPath: /apps/resources/hazelcast.yaml
+          name: hazelcast-config-volume
+          subPath: hazelcast.yaml
+
+      # ------------------- SIDECAR CONTAINER -------------------
+      - name: oauth2-proxy
+        image: quay.io/oauth2-proxy/oauth2-proxy:v7.5.1
+        args:
+          - --provider=oidc
+          - --oidc-issuer-url=https://sso.equinix.com/.well-known/openid-configuration
+          - --client-id=$(OAUTH2_PROXY_CLIENT_ID)
+          - --client-secret=$(OAUTH2_PROXY_CLIENT_SECRET)
+          - --cookie-secret=$(OAUTH2_PROXY_COOKIE_SECRET)
+          - --cookie-domain=.equinix.com
+          - --upstream=http://127.0.0.1:8080
+          - --http-address=0.0.0.0:4180
+          - --redirect-url=https://paceportal.equinix.com/oauth2/callback
+        env:
+          - name: OAUTH2_PROXY_CLIENT_ID
+            valueFrom:
+              secretKeyRef:
+                name: pingfederate-secret
+                key: client_id
+          - name: OAUTH2_PROXY_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: pingfederate-secret
+                key: client_secret
+          - name: OAUTH2_PROXY_COOKIE_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: pingfederate-secret
+                key: cookie_secret
+        ports:
+          - containerPort: 4180
+            name: oauth2
+        volumeMounts:
+          - name: sso-config
+            mountPath: /etc/oauth2-proxy
+
+      dnsPolicy: ClusterFirst
+      imagePullSecrets:
+      - name: paceregcred
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: pace-portal-application-properties
+        secret:
+          defaultMode: 420
+          secretName: pace-portal-application-properties
+      - name: amp-pace-truststore
+        secret:
+          defaultMode: 420
+          secretName: amp-pace-truststore-test
+      - name: kafka-jaas-config
+        secret:
+          defaultMode: 420
+          secretName: kafka-jaas-config
+      - configMap:
+          defaultMode: 420
+          name: hazelcast-config
+        name: hazelcast-config-volume
+      - name: sso-config
+        configMap:
+          name: pingfederate-config
